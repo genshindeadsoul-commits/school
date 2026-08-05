@@ -94,24 +94,41 @@ export default function AdminReports() {
                 <th className="p-3">Class</th>
                 <th className="p-3">Section</th>
                 <th className="p-3">Coordinator</th>
+                <th className="p-3">Requested At</th>
+                <th className="p-3">Sent At</th>
+                <th className="p-3">Response Time</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
             <tbody>
-              {report.rows.map((r, i) => (
-                <tr key={i} className="border-b border-slate-100 dark:border-slate-700/50">
-                  <td className="p-3">{r.Student}</td>
-                  <td className="p-3">{r['Student ID']}</td>
-                  <td className="p-3">{r.Class}</td>
-                  <td className="p-3">{r.Section}</td>
-                  <td className="p-3">{r.Coordinator}</td>
-                  <td className="p-3">
-                    <span className={r.Status === 'sent' ? 'badge-sent' : 'badge-pending'}>{r.Status}</span>
-                  </td>
-                </tr>
-              ))}
+              {report.rows.map((r, i) => {
+                const reqTime = r['Request Time'] ? new Date(r['Request Time']) : null
+                const sentTime = r['Sent Time'] ? new Date(r['Sent Time']) : null
+                const responseMin = reqTime && sentTime
+                  ? Math.round((sentTime - reqTime) / 60000)
+                  : null
+                return (
+                  <tr key={i} className="border-b border-slate-100 dark:border-slate-700/50">
+                    <td className="p-3">{r.Student}</td>
+                    <td className="p-3">{r['Student ID']}</td>
+                    <td className="p-3">{r.Class}</td>
+                    <td className="p-3">{r.Section}</td>
+                    <td className="p-3">{r.Coordinator}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      {reqTime ? reqTime.toLocaleString() : '—'}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {sentTime ? sentTime.toLocaleString() : '—'}
+                    </td>
+                    <td className="p-3">{responseMin !== null ? `${responseMin} min` : '—'}</td>
+                    <td className="p-3">
+                      <span className={r.Status === 'sent' ? 'badge-sent' : 'badge-pending'}>{r.Status}</span>
+                    </td>
+                  </tr>
+                )
+              })}
               {report.rows.length === 0 && (
-                <tr><td colSpan={6} className="p-6 text-center text-slate-400">No requests in this range.</td></tr>
+                <tr><td colSpan={9} className="p-6 text-center text-slate-400">No requests in this range.</td></tr>
               )}
             </tbody>
           </table>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { CheckCircle2, Loader2, School, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Loader2, School, Search } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../lib/api.js'
 
@@ -8,7 +9,7 @@ export default function ParentPickup() {
   const [student, setStudent] = useState(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [confirmed, setConfirmed] = useState(null)
+  const navigate = useNavigate()
 
   async function handleLookup(e) {
     e.preventDefault()
@@ -29,19 +30,13 @@ export default function ParentPickup() {
     setSubmitting(true)
     try {
       const result = await api.post('/api/parent/request-pickup', { student_id: studentId.trim() })
-      setConfirmed(result)
       toast.success('Pickup request sent!')
+      navigate(`/status/${result.request.id}`)
     } catch (err) {
       toast.error(err.message || 'Could not send request')
     } finally {
       setSubmitting(false)
     }
-  }
-
-  function reset() {
-    setStudentId('')
-    setStudent(null)
-    setConfirmed(null)
   }
 
   return (
@@ -58,57 +53,48 @@ export default function ParentPickup() {
           </p>
         </div>
 
-        {confirmed ? (
-          <div className="card text-center">
-            <CheckCircle2 className="mx-auto mb-3 text-emerald-500" size={48} />
-            <h2 className="text-lg font-semibold">Request Sent</h2>
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{confirmed.message}</p>
-            <button onClick={reset} className="btn-primary mt-6 w-full">Submit Another Request</button>
-          </div>
-        ) : (
-          <div className="card">
-            <form onSubmit={handleLookup} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Student ID / Admission Number
-                </label>
-                <input
-                  className="input"
-                  placeholder="e.g. STU1023"
-                  value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <button type="submit" disabled={loading} className="btn-primary w-full">
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
-                {loading ? 'Looking up…' : 'Find Student'}
-              </button>
-            </form>
+        <div className="card">
+          <form onSubmit={handleLookup} className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Student ID / Admission Number
+              </label>
+              <input
+                className="input"
+                placeholder="e.g. STU1023"
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <button type="submit" disabled={loading} className="btn-primary w-full">
+              {loading ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+              {loading ? 'Looking up…' : 'Find Student'}
+            </button>
+          </form>
 
-            {student && (
-              <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                  Please confirm
+          {student && (
+            <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Please confirm
+              </p>
+              <div className="mt-2 space-y-1 text-sm">
+                <p><span className="font-semibold">{student.name}</span></p>
+                <p className="text-slate-500 dark:text-slate-400">
+                  ID: {student.student_id} &middot; Class {student.class} - {student.section}
                 </p>
-                <div className="mt-2 space-y-1 text-sm">
-                  <p><span className="font-semibold">{student.name}</span></p>
-                  <p className="text-slate-500 dark:text-slate-400">
-                    ID: {student.student_id} &middot; Class {student.class} - {student.section}
-                  </p>
-                </div>
-                <button
-                  onClick={handleRequestPickup}
-                  disabled={submitting}
-                  className="btn-primary mt-4 w-full"
-                >
-                  {submitting ? <Loader2 className="animate-spin" size={18} /> : null}
-                  {submitting ? 'Sending…' : 'Request Pickup'}
-                </button>
               </div>
-            )}
-          </div>
-        )}
+              <button
+                onClick={handleRequestPickup}
+                disabled={submitting}
+                className="btn-primary mt-4 w-full"
+              >
+                {submitting ? <Loader2 className="animate-spin" size={18} /> : null}
+                {submitting ? 'Sending…' : 'Request Pickup'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

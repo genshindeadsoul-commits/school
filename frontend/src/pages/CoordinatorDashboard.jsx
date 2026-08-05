@@ -7,6 +7,9 @@ import { supabase } from '../lib/supabaseClient.js'
 import { useAuth } from '../context/AuthContext.jsx'
 
 const NAV = [{ to: '/coordinator', label: 'Requests' }]
+const OVERDUE_MINUTES = 10
+const ESCALATION_CHECK_MS = 30000 // re-check overdue requests every 30s
+const RE_ALERT_COOLDOWN_MS = 120000 // don't re-alert the same request more than once every 2 min
 
 // A short beep, generated on the fly so no audio asset file is needed.
 function playNotificationSound() {
@@ -34,6 +37,8 @@ export default function CoordinatorDashboard() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const knownIds = useRef(new Set())
+  const lastAlertedAt = useRef(new Map()) // requestId -> timestamp of last overdue alert
+  const requestsRef = useRef([])
 
   const loadRequests = useCallback(async () => {
     try {
@@ -43,6 +48,7 @@ export default function CoordinatorDashboard() {
       if (search) params.set('search', search)
       const result = await api.get(`/api/coordinator/requests?${params.toString()}`)
       setRequests(result.items)
+      requestsRef.current = result.items
       result.items.forEach((r) => knownIds.current.add(r.id))
     } catch (err) {
       toast.error(err.message || 'Failed to load requests')
@@ -90,6 +96,42 @@ export default function CoordinatorDashboard() {
       supabase.removeChannel(channel)
     }
   }, [loadRequests])
+
+  // Overdue escalation: every 30s, re-alert (sound + browser notification) for
+  // any pending request that's been waiting 10+ minutes and hasn't been
+  // re-alerted in the last 2 minutes. This only works while this tab is open
+  // — closing the tab or browser stops all in-browser notifications, which is
+  // a hard platform limit (see the note in chat about Web Push as the fix).
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      const overdue = requestsRef.current.filter(
+        (r) => r.status === 'pending' && now - new Date(r.request_time).getTime() > OVERDUE_MINUTES * 60000
+      )
+      overdue.forEach((r) => {
+        const last = lastAlertedAt.current.get(r.id) || 0
+        if (now - last > RE_ALERT_COOLDOWN_MS) {
+          lastAlertedAt.current.set(r.id, now)
+          playNotificationSound()
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Overdue pickup request', {
+              body: `${r.student_name} has been waiting over ${OVERDUE_MINUTES} minutes.`,
+            })
+          }
+          toast.error(`${r.student_name} has been waiting over ${OVERDUE_MINUTES} minutes`, {
+            duration: 6000,
+          })
+        }
+      })
+    }, ESCALATION_CHECK_MS)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  function isOverdue(request) {
+    if (request.status !== 'pending') return false
+    return Date.now() - new Date(request.request_time).getTime() > OVERDUE_MINUTES * 60000
+  }
 
   async function markSent(id) {
     try {
@@ -142,29 +184,38 @@ export default function CoordinatorDashboard() {
         <div className="card text-center text-slate-400">No requests found.</div>
       ) : (
         <div className="grid gap-3">
-          {requests.map((r) => (
-            <div key={r.id} className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-semibold">{r.student_name}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  ID: {r.student_code} &middot; Class {r.class} - {r.section}
-                </p>
-                <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-                  <Clock size={12} /> Requested {new Date(r.request_time).toLocaleTimeString()}
-                </p>
+          {requests.map((r) => {
+            const overdue = isOverdue(r)
+            return (
+              <div
+                key={r.id}
+                className={`card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
+                  overdue ? 'border-red-400 dark:border-red-500 ring-2 ring-red-200 dark:ring-red-900/50' : ''
+                }`}
+              >
+                <div>
+                  <p className="font-semibold">{r.student_name}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    ID: {r.student_code} &middot; Class {r.class} - {r.section}
+                  </p>
+                  <p className={`mt-1 flex items-center gap-1 text-xs ${overdue ? 'font-semibold text-red-500' : 'text-slate-400'}`}>
+                    <Clock size={12} /> Requested {new Date(r.request_time).toLocaleTimeString()}
+                    {overdue && ' — overdue!'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={r.status === 'pending' ? 'badge-pending' : 'badge-sent'}>
+                    {r.status === 'pending' ? 'Pending' : 'Sent'}
+                  </span>
+                  {r.status === 'pending' && (
+                    <button onClick={() => markSent(r.id)} className="btn-primary !py-1.5">
+                      <CheckCircle size={16} /> Mark Sent
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className={r.status === 'pending' ? 'badge-pending' : 'badge-sent'}>
-                  {r.status === 'pending' ? 'Pending' : 'Sent'}
-                </span>
-                {r.status === 'pending' && (
-                  <button onClick={() => markSent(r.id)} className="btn-primary !py-1.5">
-                    <CheckCircle size={16} /> Mark Sent
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </DashboardLayout>

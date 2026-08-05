@@ -3,6 +3,7 @@ import OfflineBanner from './components/OfflineBanner.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 
 import ParentPickup from './pages/ParentPickup.jsx'
+import ParentStatus from './pages/ParentStatus.jsx'
 import Login from './pages/Login.jsx'
 import CoordinatorDashboard from './pages/CoordinatorDashboard.jsx'
 import AdminDashboard from './pages/AdminDashboard.jsx'
@@ -18,6 +19,7 @@ export default function App() {
       <OfflineBanner />
       <Routes>
         <Route path="/" element={<ParentPickup />} />
+        <Route path="/status/:requestId" element={<ParentStatus />} />
         <Route path="/login" element={<Login />} />
 
         <Route path="/coordinator" element={

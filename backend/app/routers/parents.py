@@ -44,6 +44,32 @@ def lookup_student(payload: StudentLookup):
     )
 
 
+@router.get("/request-status/{request_id}")
+def request_status(request_id: str):
+    """Minimal, unauthenticated status check for a single pickup request.
+    Safe to expose publicly: request_id is an unguessable UUID and this
+    returns only status/timestamps, never other students' data."""
+    res = (
+        supabase.table("pickup_requests")
+        .select("id, status, request_time, sent_time, students(name)")
+        .eq("id", request_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    row = res.data[0]
+    student = row.get("students") or {}
+    return {
+        "id": row["id"],
+        "status": row["status"],
+        "request_time": row["request_time"],
+        "sent_time": row.get("sent_time"),
+        "student_name": student.get("name"),
+    }
+
+
 @router.post("/request-pickup", status_code=201)
 def request_pickup(payload: PickupRequestCreate):
     sid = payload.student_id.strip()
