@@ -30,6 +30,21 @@ function playNotificationSound() {
   }
 }
 
+// Wraps `new Notification(...)` safely. Some mobile browsers (notably
+// Android Chrome) throw "Illegal constructor" for this call and require
+// ServiceWorkerRegistration.showNotification() instead, which needs a
+// registered service worker (out of scope here). Rather than add that
+// complexity, we just skip the OS-level notification on those browsers —
+// the in-app sound + toast still fire everywhere, so nothing is lost.
+function showBrowserNotification(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  try {
+    new Notification(title, { body })
+  } catch {
+    /* not supported on this browser (e.g. mobile Chrome) — sound + toast already covered it */
+  }
+}
+
 export default function CoordinatorDashboard() {
   const { user } = useAuth()
   const [requests, setRequests] = useState([])
@@ -59,13 +74,12 @@ export default function CoordinatorDashboard() {
         )
         if (newPending.length > 0) {
           playNotificationSound()
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('New pickup request', {
-              body: newPending.length === 1
-                ? `${newPending[0].student_name} — pickup requested.`
-                : `${newPending.length} new pickup requests.`,
-            })
-          }
+          showBrowserNotification(
+            'New pickup request',
+            newPending.length === 1
+              ? `${newPending[0].student_name} — pickup requested.`
+              : `${newPending.length} new pickup requests.`
+          )
           toast('New pickup request received', { icon: '🔔' })
         }
       }
@@ -134,11 +148,10 @@ export default function CoordinatorDashboard() {
         if (now - last > RE_ALERT_COOLDOWN_MS) {
           lastAlertedAt.current.set(r.id, now)
           playNotificationSound()
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Overdue pickup request', {
-              body: `${r.student_name} has been waiting over ${OVERDUE_MINUTES} minutes.`,
-            })
-          }
+          showBrowserNotification(
+            'Overdue pickup request',
+            `${r.student_name} has been waiting over ${OVERDUE_MINUTES} minutes.`
+          )
           toast.error(`${r.student_name} has been waiting over ${OVERDUE_MINUTES} minutes`, {
             duration: 6000,
           })
