@@ -10,6 +10,7 @@ const NAV = [{ to: '/coordinator', label: 'Requests' }]
 const OVERDUE_MINUTES = 10
 const ESCALATION_CHECK_MS = 30000 // re-check overdue requests every 30s
 const RE_ALERT_COOLDOWN_MS = 120000 // don't re-alert the same request more than once every 2 min
+const POLL_INTERVAL_MS = 10000 // silent background refresh — self-heals if realtime misses an event
 
 // A short beep, generated on the fly so no audio asset file is needed.
 function playNotificationSound() {
@@ -36,7 +37,7 @@ export default function CoordinatorDashboard() {
   const [classFilter, setClassFilter] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
-  const knownIds = useRef(new Set())
+  const knownIds = useRef(null) // null until first successful load, so we never alert on the initial page load
   const lastAlertedAt = useRef(new Map()) // requestId -> timestamp of last overdue alert
   const requestsRef = useRef([])
 
@@ -47,9 +48,31 @@ export default function CoordinatorDashboard() {
       if (classFilter) params.set('class', classFilter)
       if (search) params.set('search', search)
       const result = await api.get(`/api/coordinator/requests?${params.toString()}`)
+
+      // Detect genuinely new pending requests by diffing against what we
+      // already knew, rather than trusting the realtime event alone to tell
+      // us — this way the sound/notification fires correctly even if the
+      // realtime push was missed or the connection dropped.
+      if (knownIds.current !== null) {
+        const newPending = result.items.filter(
+          (r) => r.status === 'pending' && !knownIds.current.has(r.id)
+        )
+        if (newPending.length > 0) {
+          playNotificationSound()
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('New pickup request', {
+              body: newPending.length === 1
+                ? `${newPending[0].student_name} — pickup requested.`
+                : `${newPending.length} new pickup requests.`,
+            })
+          }
+          toast('New pickup request received', { icon: '🔔' })
+        }
+      }
+
       setRequests(result.items)
       requestsRef.current = result.items
-      result.items.forEach((r) => knownIds.current.add(r.id))
+      knownIds.current = new Set(result.items.map((r) => r.id))
     } catch (err) {
       toast.error(err.message || 'Failed to load requests')
     } finally {
@@ -68,33 +91,31 @@ export default function CoordinatorDashboard() {
     }
   }, [])
 
-  // Supabase Realtime subscription: any INSERT/UPDATE on pickup_requests
-  // triggers a refetch (simplest + always-consistent approach) and, for
-  // new inserts, a sound + browser notification.
+  // Supabase Realtime subscription: gives near-instant refresh when a change
+  // comes in. This is a speed optimization, not the source of truth — the
+  // polling interval below guarantees the list stays correct even if a
+  // realtime event is missed or the websocket drops.
   useEffect(() => {
     const channel = supabase
       .channel('pickup_requests_changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pickup_requests' },
-        (payload) => {
-          if (payload.eventType === 'INSERT' && !knownIds.current.has(payload.new.id)) {
-            playNotificationSound()
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('New pickup request', {
-                body: 'A new pickup request just came in.',
-              })
-            }
-            toast('New pickup request received', { icon: '🔔' })
-          }
-          loadRequests()
-        }
+        () => loadRequests()
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
+  }, [loadRequests])
+
+  // Silent background poll — the reliability safety net. Runs regardless of
+  // whether realtime is working, so the dashboard never requires a manual
+  // refresh even if the websocket connection is flaky or drops.
+  useEffect(() => {
+    const interval = setInterval(loadRequests, POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
   }, [loadRequests])
 
   // Overdue escalation: every 30s, re-alert (sound + browser notification) for
