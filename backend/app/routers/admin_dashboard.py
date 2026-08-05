@@ -165,11 +165,16 @@ def export_report_pdf(
         Spacer(1, 12),
     ]
 
-    table_data = [["Student", "ID", "Class", "Section", "Coordinator", "Status"]]
+    table_data = [["Student", "ID", "Class", "Section", "Coordinator", "Requested At", "Sent At", "Status"]]
     for row in data["rows"]:
+        req_time = row["Request Time"]
+        sent_time = row["Sent Time"]
+        req_str = req_time[:16].replace("T", " ") if req_time else "-"
+        sent_str = sent_time[:16].replace("T", " ") if sent_time else "-"
         table_data.append([
             row["Student"] or "", row["Student ID"] or "", row["Class"] or "",
-            row["Section"] or "", row["Coordinator"] or "", row["Status"] or "",
+            row["Section"] or "", row["Coordinator"] or "", req_str, sent_str,
+            row["Status"] or "",
         ])
 
     table = Table(table_data, repeatRows=1)

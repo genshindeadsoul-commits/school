@@ -145,6 +145,17 @@ alter table admins enable row level security;
 alter table pickup_requests enable row level security;
 alter table audit_logs enable row level security;
 
+-- Supabase Realtime only pushes postgres_changes events to a client if RLS
+-- explicitly allows that client's role to SELECT the row — this is required
+-- even though the frontend never queries this table directly (only the
+-- backend, via service_role, reads/writes it). Without this policy, realtime
+-- silently sends nothing and coordinator dashboards need a manual refresh.
+-- pickup_requests has no student names or personal info in its own columns
+-- (just UUIDs, timestamps, and status), so this is a low-risk, narrow grant.
+drop policy if exists "allow anon select for realtime" on pickup_requests;
+create policy "allow anon select for realtime" on pickup_requests
+  for select to anon using (true);
+
 -- ------------------------------------------------------------
 -- REALTIME
 -- ------------------------------------------------------------
