@@ -13,6 +13,26 @@ from app.utils.audit import log_action
 router = APIRouter(prefix="/api/parent", tags=["parent"])
 
 
+@router.get("/search-students")
+def search_students(query: str):
+    """Lets a parent find their child by typing a name instead of needing
+    the exact Student ID / Admission Number. Returns up to 10 active
+    students whose name contains the query (case-insensitive)."""
+    q = query.strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Type at least 2 characters")
+
+    res = (
+        supabase.table("students")
+        .select("id, student_id, name, class, section")
+        .eq("status", "active")
+        .ilike("name", f"%{q}%")
+        .limit(10)
+        .execute()
+    )
+    return {"items": res.data}
+
+
 @router.post("/lookup-student", response_model=StudentPublic)
 def lookup_student(payload: StudentLookup):
     sid = payload.student_id.strip()
