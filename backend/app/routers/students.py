@@ -20,6 +20,16 @@ router = APIRouter(prefix="/api/admin/students", tags=["admin-students"])
 REQUIRED_IMPORT_COLUMNS = ["Student ID", "Student Name", "Class", "Section", "Coordinator"]
 
 
+def _clean_coordinator_id(value: Optional[str]) -> Optional[str]:
+    """Treats an empty string the same as None. The frontend's "No
+    coordinator" dropdown option sends "" rather than omitting the field
+    entirely, and "" is not a valid UUID — inserting/updating with it
+    crashes the database call with a 500 error. This normalizes it."""
+    if value is None or value.strip() == "":
+        return None
+    return value
+
+
 # ---------------------------------------------------------------- CRUD
 @router.get("")
 def list_students(
@@ -55,15 +65,27 @@ def create_student(payload: StudentCreate, claims: dict = Depends(require_admin)
     if dup.data:
         raise HTTPException(status_code=409, detail="Student ID already exists")
 
+    coordinator_id = _clean_coordinator_id(payload.coordinator_id)
+    if coordinator_id:
+        exists = (
+            supabase.table("coordinators").select("id").eq("id", coordinator_id).execute()
+        )
+        if not exists.data:
+            raise HTTPException(status_code=400, detail="Selected coordinator does not exist")
+
     row = {
         "student_id": payload.student_id,
         "admission_no": payload.admission_no,
         "name": payload.name,
         "class": payload.class_,
         "section": payload.section,
-        "coordinator_id": payload.coordinator_id,
+        "coordinator_id": coordinator_id,
     }
-    result = supabase.table("students").insert(row).execute()
+    try:
+        result = supabase.table("students").insert(row).execute()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create student: {e}")
+
     log_action("admin", claims["sub"], "STUDENT_CREATED",
                entity_type="student", entity_id=result.data[0]["id"])
     return result.data[0]
@@ -84,12 +106,16 @@ def update_student(student_uuid: str, payload: StudentUpdate,
     if payload.section is not None:
         updates["section"] = payload.section
     if payload.coordinator_id is not None:
-        updates["coordinator_id"] = payload.coordinator_id
+        updates["coordinator_id"] = _clean_coordinator_id(payload.coordinator_id)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    result = supabase.table("students").update(updates).eq("id", student_uuid).execute()
+    try:
+        result = supabase.table("students").update(updates).eq("id", student_uuid).execute()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update student: {e}")
+
     if not result.data:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -274,7 +300,7 @@ def preview_import(file: UploadFile = File(...), claims: dict = Depends(require_
             valid_count += 1
 
         rows.append({
-            "row_number": int(idx) + 2,  # +2 = header row + 1-indexing
+            "row_number": int(idx) + 2,
             "student_id": sid, "name": name, "class": klass,
             "section": section, "coordinator": coordinator,
             "valid": is_valid, "errors": errors,
