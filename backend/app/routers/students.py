@@ -30,6 +30,17 @@ def _clean_coordinator_id(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def _clean_optional_text(value: Optional[str]) -> Optional[str]:
+    """Treats an empty string the same as None for optional unique text
+    fields like admission_no. The admission_no column allows many NULLs
+    but only one row can ever have the empty string "" — so once a second
+    student is saved with a blank admission number, "" collides with the
+    first one and the unique constraint rejects it with a 500 error."""
+    if value is None or value.strip() == "":
+        return None
+    return value
+
+
 # ---------------------------------------------------------------- CRUD
 @router.get("")
 def list_students(
@@ -75,7 +86,7 @@ def create_student(payload: StudentCreate, claims: dict = Depends(require_admin)
 
     row = {
         "student_id": payload.student_id,
-        "admission_no": payload.admission_no,
+        "admission_no": _clean_optional_text(payload.admission_no),
         "name": payload.name,
         "class": payload.class_,
         "section": payload.section,
@@ -84,6 +95,11 @@ def create_student(payload: StudentCreate, claims: dict = Depends(require_admin)
     try:
         result = supabase.table("students").insert(row).execute()
     except Exception as e:
+        if "duplicate key" in str(e) or "23505" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail="That Student ID or Admission Number is already in use",
+            )
         raise HTTPException(status_code=400, detail=f"Could not create student: {e}")
 
     log_action("admin", claims["sub"], "STUDENT_CREATED",
@@ -98,7 +114,7 @@ def update_student(student_uuid: str, payload: StudentUpdate,
     if payload.student_id is not None:
         updates["student_id"] = payload.student_id
     if payload.admission_no is not None:
-        updates["admission_no"] = payload.admission_no
+        updates["admission_no"] = _clean_optional_text(payload.admission_no)
     if payload.name is not None:
         updates["name"] = payload.name
     if payload.class_ is not None:
